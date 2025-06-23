@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kh3rld/movie-app/internal/api"
+	"github.com/kh3rld/movie-app/internal/cache"
 	"github.com/kh3rld/movie-app/internal/config"
 )
 
@@ -19,7 +20,12 @@ func main() {
 	cfg := config.LoadConfig()
 	tmdb := api.NewTMDBClient(cfg)
 	omdb := api.NewOMDBClient(cfg)
-	handler := &api.Handler{TMDB: tmdb, OMDB: omdb}
+	cache := cache.New()
+	handler := &api.Handler{
+		TMDB:  tmdb,
+		OMDB:  omdb,
+		Cache: cache,
+	}
 
 	r := chi.NewRouter()
 
@@ -28,15 +34,17 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
-	r.Get("/api/search", handler.Search)
-	r.Get("/api/detail", handler.Detail)
+	r.Route("/api", func(r chi.Router) {
+		r.Get("/search", handler.Search)
+		r.Get("/detail", handler.Detail)
+		r.Get("/trending", handler.Trending)
+		r.Get("/recommendations", handler.Recommendations)
+	})
 
 	r.Get("/api/watchlist", handler.GetWatchlist)
 	r.Post("/api/watchlist", handler.AddToWatchlist)
 	r.Delete("/api/watchlist", handler.RemoveFromWatchlist)
 	r.Patch("/api/watchlist", handler.MarkWatched)
-	r.Get("/api/trending", handler.Trending)
-	r.Get("/api/recommendations", handler.Recommendations)
 
 	// Serve static files from ./web
 	fileServer := http.FileServer(http.Dir("./web"))
