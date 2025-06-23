@@ -2,14 +2,19 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/kh3rld/movie-app/internal/cache"
 )
 
 type Handler struct {
-	TMDB *TMDBClient
-	OMDB *OMDBClient
+	TMDB  *TMDBClient
+	OMDB  *OMDBClient
+	Cache *cache.Cache
 }
 
 type SearchResult struct {
@@ -61,11 +66,19 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Missing or invalid parameters")
 		return
 	}
+
 	page := 1
 	if pageStr != "" {
 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
 			page = p
 		}
+	}
+
+	cacheKey := fmt.Sprintf("search_%s_%s_%d", mediaType, q, page)
+	if cached, found := h.Cache.Get(cacheKey); found {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(cached)
+		return
 	}
 
 	respBytes, err := h.TMDB.Search(q, mediaType, page)
@@ -74,20 +87,9 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, total, totalPages, err := parseTMDBResults(respBytes, mediaType)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to parse TMDB response")
-		return
-	}
-
-	resp := SearchResponse{
-		Results:    results,
-		Total:      total,
-		Page:       page,
-		TotalPages: totalPages,
-	}
+	h.Cache.Set(cacheKey, respBytes, 5*time.Minute)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	w.Write(respBytes)
 }
 
 // parseTMDBResults parses the TMDB API response and maps it to SearchResult slice.
@@ -304,119 +306,60 @@ func (h *Handler) MarkWatched(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Trending(w http.ResponseWriter, r *http.Request) {
-	type_ := r.URL.Query().Get("type")
-	if type_ != "movie" && type_ != "tv" {
-		type_ = "movie"
+	mediaType := r.URL.Query().Get("type")
+	pageStr := r.URL.Query().Get("page")
+	if mediaType != "movie" && mediaType != "tv" {
+		writeError(w, http.StatusBadRequest, "Invalid media type")
+		return
 	}
-	url := "https://api.themoviedb.org/3/trending/" + type_ + "/week?api_key=" + h.TMDB.APIKey
-	resp, err := http.Get(url)
+
+	page := 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	cacheKey := fmt.Sprintf("trending_%s_%d", mediaType, page)
+	if cached, found := h.Cache.Get(cacheKey); found {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(cached)
+		return
+	}
+
+	respBytes, err := h.TMDB.GetTrending(mediaType, page)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "Failed to fetch trending")
+		writeError(w, http.StatusBadGateway, "Failed to fetch trending: "+err.Error())
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		writeError(w, http.StatusBadGateway, "TMDB trending error")
-		return
-	}
-	var raw struct {
-		Results []struct {
-			ID         int    `json:"id"`
-			Title      string `json:"title"`
-			Name       string `json:"name"`
-			Release    string `json:"release_date"`
-			FirstAir   string `json:"first_air_date"`
-			PosterPath string `json:"poster_path"`
-		} `json:"results"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to parse trending")
-		return
-	}
-	results := make([]SearchResult, 0, len(raw.Results))
-	for _, r := range raw.Results {
-		title := r.Title
-		if type_ == "tv" {
-			title = r.Name
-		}
-		year := ""
-		if r.Release != "" {
-			year = strings.Split(r.Release, "-")[0]
-		} else if r.FirstAir != "" {
-			year = strings.Split(r.FirstAir, "-")[0]
-		}
-		poster := ""
-		if r.PosterPath != "" {
-			poster = "https://image.tmdb.org/t/p/w200" + r.PosterPath
-		}
-		results = append(results, SearchResult{
-			ID:     strconv.Itoa(r.ID),
-			Title:  title,
-			Year:   year,
-			Poster: poster,
-		})
-	}
+
+	h.Cache.Set(cacheKey, respBytes, 15*time.Minute)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"results": results})
+	w.Write(respBytes)
 }
 
 func (h *Handler) Recommendations(w http.ResponseWriter, r *http.Request) {
-	count := map[string]int{"movie": 0, "tv": 0}
-	for _, v := range watchlist {
-		count[v.Type]++
+	id := r.URL.Query().Get("id")
+	mediaType := r.URL.Query().Get("type")
+	if id == "" || (mediaType != "movie" && mediaType != "tv") {
+		writeError(w, http.StatusBadRequest, "Missing or invalid parameters")
+		return
 	}
-	mainType := "movie"
-	if count["tv"] > count["movie"] {
-		mainType = "tv"
+
+	cacheKey := fmt.Sprintf("recommendations_%s_%s", mediaType, id)
+	if cached, found := h.Cache.Get(cacheKey); found {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(cached)
+		return
 	}
-	url := "https://api.themoviedb.org/3/trending/" + mainType + "/week?api_key=" + h.TMDB.APIKey
-	resp, err := http.Get(url)
+
+	respBytes, err := h.TMDB.GetRecommendations(id, mediaType)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "Failed to fetch recommendations")
+		writeError(w, http.StatusBadGateway, "Failed to fetch recommendations: "+err.Error())
 		return
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		writeError(w, http.StatusBadGateway, "TMDB recommendations error")
-		return
-	}
-	var raw struct {
-		Results []struct {
-			ID         int    `json:"id"`
-			Title      string `json:"title"`
-			Name       string `json:"name"`
-			Release    string `json:"release_date"`
-			FirstAir   string `json:"first_air_date"`
-			PosterPath string `json:"poster_path"`
-		} `json:"results"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to parse recommendations")
-		return
-	}
-	results := make([]SearchResult, 0, len(raw.Results))
-	for _, r := range raw.Results {
-		title := r.Title
-		if mainType == "tv" {
-			title = r.Name
-		}
-		year := ""
-		if r.Release != "" {
-			year = strings.Split(r.Release, "-")[0]
-		} else if r.FirstAir != "" {
-			year = strings.Split(r.FirstAir, "-")[0]
-		}
-		poster := ""
-		if r.PosterPath != "" {
-			poster = "https://image.tmdb.org/t/p/w200" + r.PosterPath
-		}
-		results = append(results, SearchResult{
-			ID:     strconv.Itoa(r.ID),
-			Title:  title,
-			Year:   year,
-			Poster: poster,
-		})
-	}
+
+	h.Cache.Set(cacheKey, respBytes, 30*time.Minute)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"results": results})
+	w.Write(respBytes)
 }
