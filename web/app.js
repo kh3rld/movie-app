@@ -263,6 +263,44 @@ function changePage(page) {
     searchMovies(page);
 }
 
+function fetchRecommendedOrTrending() {
+    // Try to get watchlist from localStorage
+    let watchlist = [];
+    try {
+        watchlist = JSON.parse(localStorage.getItem('watchlist') || '[]');
+    } catch {}
+    if (watchlist && watchlist.length > 0) {
+        // Use the first movie's ID for recommendations
+        const first = watchlist.find(w => w.type === 'movie');
+        if (first) {
+            renderLoading();
+            fetch(`/api/recommendations?id=${first.id}&type=movie`)
+                .then(res => res.json())
+                .then(data => {
+                    renderResults(data.results, 'Recommended for You');
+                })
+                .catch(() => {
+                    fetchTrending();
+                });
+            return;
+        }
+    }
+    // Fallback: show trending
+    fetchTrending();
+}
+
+function fetchTrending() {
+    renderLoading();
+    fetch('/api/trending?type=movie')
+        .then(res => res.json())
+        .then(data => {
+            renderResults(data.results, 'Trending Movies');
+        })
+        .catch(() => {
+            renderError('Could not load trending movies.');
+        });
+}
+
 searchBtn.addEventListener('click', () => searchMovies(1));
 searchInput.addEventListener('input', () => {
     clearTimeout(debounceTimeout);
@@ -272,3 +310,5 @@ genreSelect.addEventListener('change', () => searchMovies(1));
 
 // Initial genre fetch
 fetchGenres();
+// On page load, show recommended or trending
+fetchRecommendedOrTrending();
