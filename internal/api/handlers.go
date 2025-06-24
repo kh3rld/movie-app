@@ -36,6 +36,17 @@ type DetailResponse struct {
 	Ratings     map[string]string `json:"ratings"`
 }
 
+type WatchlistItem struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"` // movie or tv
+	Title   string `json:"title"`
+	Poster  string `json:"poster"`
+	Watched bool   `json:"watched"`
+}
+
+// In-memory watchlist for demo (per server, not per user)
+var watchlist = make(map[string]WatchlistItem)
+
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -238,4 +249,174 @@ func getString(m map[string]any, key string) string {
 		}
 	}
 	return ""
+}
+
+func (h *Handler) GetWatchlist(w http.ResponseWriter, r *http.Request) {
+	items := make([]WatchlistItem, 0, len(watchlist))
+	for _, v := range watchlist {
+		items = append(items, v)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"watchlist": items})
+}
+
+func (h *Handler) AddToWatchlist(w http.ResponseWriter, r *http.Request) {
+	var item WatchlistItem
+	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid body")
+		return
+	}
+	if item.ID == "" || (item.Type != "movie" && item.Type != "tv") {
+		writeError(w, http.StatusBadRequest, "Missing or invalid fields")
+		return
+	}
+	watchlist[item.Type+":"+item.ID] = item
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) RemoveFromWatchlist(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	type_ := r.URL.Query().Get("type")
+	if id == "" || (type_ != "movie" && type_ != "tv") {
+		writeError(w, http.StatusBadRequest, "Missing or invalid parameters")
+		return
+	}
+	delete(watchlist, type_+":"+id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) MarkWatched(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	type_ := r.URL.Query().Get("type")
+	if id == "" || (type_ != "movie" && type_ != "tv") {
+		writeError(w, http.StatusBadRequest, "Missing or invalid parameters")
+		return
+	}
+	key := type_ + ":" + id
+	item, ok := watchlist[key]
+	if !ok {
+		writeError(w, http.StatusNotFound, "Not in watchlist")
+		return
+	}
+	item.Watched = true
+	watchlist[key] = item
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) Trending(w http.ResponseWriter, r *http.Request) {
+	type_ := r.URL.Query().Get("type")
+	if type_ != "movie" && type_ != "tv" {
+		type_ = "movie"
+	}
+	url := "https://api.themoviedb.org/3/trending/" + type_ + "/week?api_key=" + h.TMDB.APIKey
+	resp, err := http.Get(url)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "Failed to fetch trending")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		writeError(w, http.StatusBadGateway, "TMDB trending error")
+		return
+	}
+	var raw struct {
+		Results []struct {
+			ID         int    `json:"id"`
+			Title      string `json:"title"`
+			Name       string `json:"name"`
+			Release    string `json:"release_date"`
+			FirstAir   string `json:"first_air_date"`
+			PosterPath string `json:"poster_path"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to parse trending")
+		return
+	}
+	results := make([]SearchResult, 0, len(raw.Results))
+	for _, r := range raw.Results {
+		title := r.Title
+		if type_ == "tv" {
+			title = r.Name
+		}
+		year := ""
+		if r.Release != "" {
+			year = strings.Split(r.Release, "-")[0]
+		} else if r.FirstAir != "" {
+			year = strings.Split(r.FirstAir, "-")[0]
+		}
+		poster := ""
+		if r.PosterPath != "" {
+			poster = "https://image.tmdb.org/t/p/w200" + r.PosterPath
+		}
+		results = append(results, SearchResult{
+			ID:     strconv.Itoa(r.ID),
+			Title:  title,
+			Year:   year,
+			Poster: poster,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"results": results})
+}
+
+func (h *Handler) Recommendations(w http.ResponseWriter, r *http.Request) {
+	count := map[string]int{"movie": 0, "tv": 0}
+	for _, v := range watchlist {
+		count[v.Type]++
+	}
+	mainType := "movie"
+	if count["tv"] > count["movie"] {
+		mainType = "tv"
+	}
+	url := "https://api.themoviedb.org/3/trending/" + mainType + "/week?api_key=" + h.TMDB.APIKey
+	resp, err := http.Get(url)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "Failed to fetch recommendations")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		writeError(w, http.StatusBadGateway, "TMDB recommendations error")
+		return
+	}
+	var raw struct {
+		Results []struct {
+			ID         int    `json:"id"`
+			Title      string `json:"title"`
+			Name       string `json:"name"`
+			Release    string `json:"release_date"`
+			FirstAir   string `json:"first_air_date"`
+			PosterPath string `json:"poster_path"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to parse recommendations")
+		return
+	}
+	results := make([]SearchResult, 0, len(raw.Results))
+	for _, r := range raw.Results {
+		title := r.Title
+		if mainType == "tv" {
+			title = r.Name
+		}
+		year := ""
+		if r.Release != "" {
+			year = strings.Split(r.Release, "-")[0]
+		} else if r.FirstAir != "" {
+			year = strings.Split(r.FirstAir, "-")[0]
+		}
+		poster := ""
+		if r.PosterPath != "" {
+			poster = "https://image.tmdb.org/t/p/w200" + r.PosterPath
+		}
+		results = append(results, SearchResult{
+			ID:     strconv.Itoa(r.ID),
+			Title:  title,
+			Year:   year,
+			Poster: poster,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"results": results})
 }
