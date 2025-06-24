@@ -2,8 +2,6 @@
 
 A web application for discovering movies and TV shows, powered by TMDB and OMDB APIs.
 
-## Getting Started
-
 ### 1. Clone the repository
 ```sh
 git clone https://github.com/kh3rld/movie-app.git
@@ -88,4 +86,4 @@ Open `web/index.html` in your browser, or visit `http://localhost:8080` if serve
 
 
 ## License
-MIT
+[MIT](LICENSE)
