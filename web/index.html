@@ -4,15 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Movie/TV Show Discovery</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Movie/TV Show Discovery</h1>
-        <input type="text" id="searchInput" placeholder="Search for movies or TV shows..." autocomplete="off">
-        <button id="searchBtn">Search</button>
-        <div id="results"></div>
-    </div>
+    <header class="app-header">
+        <div class="container">
+            <h1>Movie/TV Show Discovery</h1>
+        </div>
+    </header>
+    <main class="container main-content">
+        <section class="search-controls">
+            <input type="text" id="searchInput" placeholder="Search for movies or TV shows..." autocomplete="off" aria-label="Search">
+            <button id="searchBtn" aria-label="Search">Search</button>
+        </section>
+        <section id="genre-section"></section>
+        <section id="results"></section>
+    </main>
+    <footer class="app-footer">
+        <div class="container">
+            <span>&copy; 2024 Movie/TV Show Discovery</span>
+        </div>
+    </footer>
+    <div id="modal" class="modal" aria-modal="true" role="dialog" style="display:none;"></div>
     <script src="app.js"></script>
 </body>
 </html>
