@@ -3,7 +3,6 @@ package api
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 
@@ -39,7 +38,7 @@ func (c *TMDBClient) Search(query, mediaType string, page int) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("TMDB error: %s", resp.Status)
 	}
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
 
 func (c *TMDBClient) GetDetails(id, mediaType string) ([]byte, error) {
