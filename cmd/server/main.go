@@ -31,6 +31,13 @@ func main() {
 	r.Get("/api/search", handler.Search)
 	r.Get("/api/detail", handler.Detail)
 
+	r.Get("/api/watchlist", handler.GetWatchlist)
+	r.Post("/api/watchlist", handler.AddToWatchlist)
+	r.Delete("/api/watchlist", handler.RemoveFromWatchlist)
+	r.Patch("/api/watchlist", handler.MarkWatched)
+	r.Get("/api/trending", handler.Trending)
+	r.Get("/api/recommendations", handler.Recommendations)
+
 	// Serve static files from ./web
 	fileServer := http.FileServer(http.Dir("./web"))
 	r.Handle("/*", fileServer)
