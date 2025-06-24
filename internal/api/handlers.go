@@ -153,7 +153,7 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 
 // parseTMDBDetail parses TMDB detail response and returns a DetailResponse and imdbID
 func parseTMDBDetail(data []byte, mediaType string) (*DetailResponse, string) {
-	var raw map[string]interface{}
+	var raw map[string]any
 	_ = json.Unmarshal(data, &raw)
 	id := ""
 	if v, ok := raw["id"].(float64); ok {
@@ -205,7 +205,7 @@ func parseTMDBDetail(data []byte, mediaType string) (*DetailResponse, string) {
 
 // mergeOMDBDetail merges OMDB data into DetailResponse
 func mergeOMDBDetail(detail *DetailResponse, data []byte) {
-	var raw map[string]interface{}
+	var raw map[string]any
 	_ = json.Unmarshal(data, &raw)
 	if plot, ok := raw["Plot"].(string); ok && plot != "N/A" && plot != "" {
 		detail.Plot = plot
@@ -231,7 +231,7 @@ func mergeOMDBDetail(detail *DetailResponse, data []byte) {
 	}
 }
 
-func getString(m map[string]interface{}, key string) string {
+func getString(m map[string]any, key string) string {
 	if v, ok := m[key]; ok {
 		if s, ok := v.(string); ok {
 			return s
