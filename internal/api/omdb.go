@@ -2,7 +2,7 @@ package api
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -36,5 +36,5 @@ func (c *OMDBClient) GetDetails(imdbID string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("OMDB error: %s", resp.Status)
 	}
-	return ioutil.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
 }
